@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.26730.15
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CILDisassembler", "CILDisassembler\CILDisassembler.csproj", "{1B4C07AB-F13F-46A3-849B-264171433A27}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CILDisassembler.Tests", "CILDisassembler.Tests\CILDisassembler.Tests.csproj", "{FEF0B388-2C76-40B6-912C-7E7F63A3C626}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1B4C07AB-F13F-46A3-849B-264171433A27}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1B4C07AB-F13F-46A3-849B-264171433A27}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1B4C07AB-F13F-46A3-849B-264171433A27}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1B4C07AB-F13F-46A3-849B-264171433A27}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FEF0B388-2C76-40B6-912C-7E7F63A3C626}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FEF0B388-2C76-40B6-912C-7E7F63A3C626}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FEF0B388-2C76-40B6-912C-7E7F63A3C626}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FEF0B388-2C76-40B6-912C-7E7F63A3C626}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {27FD9052-3AC0-462C-9AC7-E80B20F2F764}
+	EndGlobalSection
+EndGlobal
