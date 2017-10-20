@@ -36,14 +36,63 @@ namespace CILDisassembler
         public int OperandSize;
         public long Operand;
 
-        public void Nmunonic(StringBuilder output)
+        public void Nmunonic(Module module, StringBuilder output)
         {
-            output.Append(OpCode.ToString());
+            var name = OpCode.Name;
+            output.Append(name);
 
             if (OperandSize > 0)
             {
                 output.Append(' ');
-                output.Append(Operand);
+
+                switch (OpCode.OperandType)
+                {
+                    case OperandType.InlineMethod:
+                        var methodarg = module.ResolveMethod((int)Operand);
+                        output.Append(methodarg.DeclaringType.ToString());
+                        output.Append('.');
+                        output.Append(methodarg.Name);
+                        break;
+                    case OperandType.InlineField:
+                        var fieldarg = module.ResolveField((int)Operand);
+                        output.Append(fieldarg.DeclaringType.FullName);
+                        output.Append('.');
+                        output.Append(fieldarg.Name);
+                        break;
+                    case OperandType.InlineString:
+                        var stringarg = module.ResolveString((int)Operand);
+                        output.EnsureCapacity(stringarg.Length + 2);
+                        output.Append('"');
+                        foreach (var chr in stringarg)
+                        {
+                            switch (chr)
+                            {
+                                case '\n': output.Append("\\n"); continue;
+                                case '\r': output.Append("\\r"); continue;
+                                case '\t': output.Append("\\t"); continue;
+                                case '\\': output.Append("\\\\"); continue;
+                                case '"': output.Append("\\\""); continue;
+                            }
+
+                            if (chr < 32)
+                            {
+                                output.Append("\\x");
+                                output.Append(((int)chr).ToString("X2"));
+                                continue;
+                            }
+
+                            output.Append(chr);
+                        }
+                        output.Append('"');
+                        break;
+                    case OperandType.InlineTok:
+                        var typearg = module.ResolveType((int)Operand);
+                        output.Append(typearg.FullName);
+                        break;
+                    default:
+                        output.Append(Operand);
+                        break;
+                }
             }
         }
     }
@@ -54,17 +103,19 @@ namespace CILDisassembler
             MethodInfo methodInfo, StringBuilder output)
         {
             var body = methodInfo.GetMethodBody();
-            return Disassemble(body.GetILAsByteArray(), output);
+            return Disassemble(body.GetILAsByteArray(),
+                methodInfo.Module, output);
         }
 
         public static int Disassemble(
-            byte[] bytecode, StringBuilder output)
+            byte[] bytecode, Module module, StringBuilder output)
         {
-            return Disassemble(bytecode, 0, bytecode.Length, output);
+            return Disassemble(bytecode, 0, bytecode.Length, module, output);
         }
 
         public static int Disassemble(
-            byte[] bytecode, int offset, int count, StringBuilder output)
+            byte[] bytecode, int offset, int count,
+            Module module, StringBuilder output)
         {
             // Make the pretty iffy assumption about how much each byte will
             // add to the output.
@@ -74,7 +125,7 @@ namespace CILDisassembler
 
             foreach (var dis in GetOpCodes(bytecode, offset, count))
             {
-                dis.Nmunonic(output);
+                dis.Nmunonic(module, output);
                 output.Append('\n');
                 ++instructionsDecoded;
             }

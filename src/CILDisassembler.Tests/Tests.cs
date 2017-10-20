@@ -44,6 +44,8 @@ namespace CILDisassembler.Tests
         [TestMethod]
         public void EnsureDissassemblyProducesExpectedOutput()
         {
+            var method = LocalMethod(nameof(test));
+            var mm = method.GetMethodBody().GetILAsByteArray();
             // Doing these tests against methods inside the code is extremely
             // sloppy because it errors or succeeds depending on if it's
             // a Release or Debug build, and further can break from compiler
@@ -53,7 +55,36 @@ namespace CILDisassembler.Tests
             AssertDisassembly(
                 LocalMethod(nameof(EmptyMethod)),
                 @"nop
-                    ret");
+ret");
+
+            AssertDisassembly(
+                LocalMethod(nameof(LocalMethod)),
+                @"nop
+ldtoken CILDisassembler.Tests.Tests
+call System.Type.GetTypeFromHandle
+ldarg.0
+ldc.i4.s 40
+call System.Type.GetMethod
+stloc.0
+br.s 0
+ldloc.0
+ret");
+
+            AssertDisassembly(
+                LocalMethod(nameof(NormalizeString)),
+                @"nop
+ldsfld CILDisassembler.Tests.Tests._trimLeadingSpacesExp
+ldarg.0
+ldstr ""\r\n""
+ldstr ""\n""
+callvirt System.String.Replace
+callvirt System.String.Trim
+ldstr """"
+callvirt System.Text.RegularExpressions.Regex.Replace
+stloc.0
+br.s 0
+ldloc.0
+ret");
 
             AssertDisassembly(
                 LocalMethod(nameof(AdditionMethod)),
@@ -105,6 +136,11 @@ ret");
         {
             var x = 0xC7C700;
             return x << 5;
+        }
+
+        private static void test()
+        {
+            AdditionMethod();
         }
     }
 }
