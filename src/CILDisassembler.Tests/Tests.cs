@@ -2,6 +2,7 @@
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace CILDisassembler.Tests
@@ -44,8 +45,6 @@ namespace CILDisassembler.Tests
         [TestMethod]
         public void EnsureDissassemblyProducesExpectedOutput()
         {
-            var method = LocalMethod(nameof(test));
-            var mm = method.GetMethodBody().GetILAsByteArray();
             // Doing these tests against methods inside the code is extremely
             // sloppy because it errors or succeeds depending on if it's
             // a Release or Debug build, and further can break from compiler
@@ -98,6 +97,31 @@ stloc.1
 br.s 0
 ldloc.1
 ret");
+
+            AssertDisassembly(
+                LocalMethod(nameof(TwoByteInstructionMethod)),
+                @"nop
+ldc.i4.0
+stloc.0
+br.s 17
+nop
+ldloc.0
+dup
+ldc.i4.1
+add
+stloc.0
+ldc.i4.6
+cgt
+stloc.1
+ldloc.1
+brfalse.s 3
+nop
+br.s 5
+nop
+ldc.i4.1
+stloc.2
+br.s 235
+ret");
         }
 
         private static void AssertDisassembly(
@@ -130,6 +154,19 @@ ret");
 
         private static void EmptyMethod()
         {
+        }
+
+        private static void TwoByteInstructionMethod()
+        {
+            var x = 0;
+            while (true)
+            {
+                // Creates the 'cgt' instruction, 0xFE 0x02
+                if (x++ > 6)
+                {
+                    break;
+                }
+            }
         }
 
         private static int AdditionMethod()

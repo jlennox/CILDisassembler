@@ -97,7 +97,7 @@ namespace CILDisassembler
         }
     }
 
-    public class Disassembler
+    public static class Disassembler
     {
         public static int Disassemble(
             MethodInfo methodInfo, StringBuilder output)
@@ -138,9 +138,28 @@ namespace CILDisassembler
         {
             var end = offset + count;
 
+            ushort prefix = 0;
+
             for (var i = offset; i < end; ++i)
             {
-                var opcode = LookupTables.OpcodeLookup[bytecode[i]];
+                var opcodeByte = (ushort)bytecode[i];
+
+                // The first byte of all two byte opcodes are a "prefix."
+                // Prefix7 = 0xF8, Prefix1 = 0xFE
+                if (opcodeByte >= OpCodes.Prefix7.Value &&
+                    opcodeByte <= OpCodes.Prefix1.Value)
+                {
+                    prefix = opcodeByte;
+                    continue;
+                }
+
+                if (prefix != 0)
+                {
+                    opcodeByte |= (ushort)(prefix << 8);
+                    prefix = 0;
+                }
+
+                var opcode = LookupTables.OpcodeLookup[opcodeByte];
                 var operandSize = LookupTables
                     .OperandSizeLookup[(byte)opcode.OperandType];
 
@@ -165,6 +184,13 @@ namespace CILDisassembler
                 }
 
                 yield return dis;
+            }
+
+            // Need to check spec if this is actually invalid.
+            if (prefix != 0)
+            {
+                throw new InvalidProgramException(
+                    "A prefix instruction was the final value in a method.");
             }
         }
     }
