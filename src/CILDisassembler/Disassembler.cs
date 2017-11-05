@@ -26,24 +26,71 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace CILDisassembler
 {
+    [Flags]
+    public enum DisassemblerOptions
+    {
+        None,
+        /// <summary>
+        /// Include the address as a label before each instruction.
+        /// </summary>
+        AddressLabel = 1 << 0,
+        /// <summary>
+        /// Include a comment with the bytes after each instruction.
+        /// </summary>
+        BytesComment = 1 << 1,
+        /// <summary>
+        /// Align the operand's to the same text columns.
+        /// </summary>
+        AlignOperand = 1 << 2,
+        ResharperLike = AddressLabel | AlignOperand,
+        Default = AlignOperand,
+        All = int.MaxValue
+    }
+
     public struct DisassembledOpcode
     {
+        private const int _alignOperandLength = 13;
+
+        public uint Offset;
         public OpCode OpCode;
         public int OperandSize;
         public long Operand;
 
-        public void Nmunonic(Module module, StringBuilder output)
+        // The byte size of the opcode+operand.
+        public int ByteSize => (OpCode.Value > 0xFF ? 2 : 1) + OperandSize;
+
+        public void Nmunonic(
+            Module module,
+            DisassemblerOptions options,
+            StringBuilder output)
         {
+            var addressLabelOption = options.HasFlag(DisassemblerOptions.AddressLabel);
+            var bytesCommentOption = options.HasFlag(DisassemblerOptions.BytesComment);
+            var alignOperandOption = options.HasFlag(DisassemblerOptions.AlignOperand);
+
+            if (addressLabelOption)
+            {
+                output.Append("ADDR_");
+                output.Append(Offset.ToString("x4"));
+                output.Append(":  ");
+            }
+
             var name = OpCode.Name;
             output.Append(name);
 
             if (OperandSize > 0)
             {
-                output.Append(' ');
+                if (alignOperandOption && name.Length < _alignOperandLength)
+                {
+                    output.Append(' ', _alignOperandLength - name.Length);
+                }
+                else
+                {
+                    output.Append(' ');
+                }
 
                 switch (OpCode.OperandType)
                 {
@@ -86,46 +133,149 @@ namespace CILDisassembler
                         output.Append('"');
                         break;
                     case OperandType.InlineTok:
+                    case OperandType.InlineType:
                         var typearg = module.ResolveType((int)Operand);
                         output.Append(typearg.FullName);
+                        break;
+                    case OperandType.InlineBrTarget:
+                    case OperandType.ShortInlineBrTarget:
+                        var abs = GetAbsoluteBranchDestination();
+                        LabelFromOffset(abs, output);
                         break;
                     default:
                         output.Append(Operand);
                         break;
                 }
             }
+
+            if (bytesCommentOption)
+            {
+                output.Append("\t// 0x");
+                var opcodeFormat = OpCode.Value > 0xFF ? "x4" : "x2";
+                output.Append(OpCode.Value.ToString(opcodeFormat));
+
+                if (OperandSize > 0)
+                {
+                    output.Append(" 0x");
+                    var operandFormat = "x" + OperandSize * 2;
+                    output.Append(Operand.ToString(operandFormat));
+                }
+            }
+        }
+
+        internal uint GetAbsoluteBranchDestination()
+        {
+            switch (OpCode.OperandType)
+            {
+                case OperandType.InlineBrTarget:
+                    return (uint)((int)Operand + Offset + ByteSize);
+                case OperandType.ShortInlineBrTarget:
+                    return (uint)((sbyte)Operand + Offset + ByteSize);
+            }
+
+            throw new ArgumentOutOfRangeException(
+                nameof(OperandType), OpCode.OperandType,
+                "Can only be called on branch instructions.");
+        }
+
+        internal static void LabelFromOffset(uint offset, StringBuilder output)
+        {
+            output.Append("IL_");
+            output.Append(offset.ToString("x4"));
         }
     }
 
     public static class Disassembler
     {
+        internal const string CILOnlyMethodsError = "Only IL methods are supported.";
+
         public static int Disassemble(
-            MethodInfo methodInfo, StringBuilder output)
+            MethodInfo methodInfo,
+            DisassemblerOptions options,
+            StringBuilder output)
         {
+            if (methodInfo == null)
+            {
+                throw new ArgumentNullException(nameof(methodInfo));
+            }
+
+            if (!methodInfo.MethodImplementationFlags
+                .HasFlag(MethodImplAttributes.IL))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(methodInfo.MethodImplementationFlags),
+                    methodInfo.MethodImplementationFlags.ToString(),
+                    CILOnlyMethodsError);
+            }
+
+            // This happens on extern (ie, DLLImport) methods.
             var body = methodInfo.GetMethodBody();
+
+            if (body == null)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(methodInfo.MethodImplementationFlags),
+                    methodInfo.MethodImplementationFlags.ToString(),
+                    CILOnlyMethodsError);
+            }
+
             return Disassemble(body.GetILAsByteArray(),
-                methodInfo.Module, output);
+                methodInfo.Module, options, output);
         }
 
         public static int Disassemble(
-            byte[] bytecode, Module module, StringBuilder output)
+            byte[] bytecode, Module module,
+            DisassemblerOptions options,
+            StringBuilder output)
         {
-            return Disassemble(bytecode, 0, bytecode.Length, module, output);
+            return Disassemble(
+                bytecode, 0, bytecode.Length,
+                module, options, output);
         }
 
         public static int Disassemble(
             byte[] bytecode, int offset, int count,
             Module module, StringBuilder output)
         {
+            return Disassemble(
+                bytecode, offset, count, module,
+                DisassemblerOptions.Default, output);
+        }
+
+        public static int Disassemble(
+            byte[] bytecode, int offset, int count,
+            Module module, DisassemblerOptions options,
+            StringBuilder output)
+        {
             // Make the pretty iffy assumption about how much each byte will
             // add to the output.
             output.EnsureCapacity(output.Length + count * 5);
 
             var instructionsDecoded = 0;
+            var opcodes = GetOpCodes(bytecode, offset, count).ToArray();
+            var requiresLabel = new HashSet<uint>();
 
-            foreach (var dis in GetOpCodes(bytecode, offset, count))
+            foreach (var opcode in opcodes)
             {
-                dis.Nmunonic(module, output);
+                switch (opcode.OpCode.OperandType)
+                {
+                    case OperandType.InlineBrTarget:
+                    case OperandType.ShortInlineBrTarget:
+                        var abs = opcode.GetAbsoluteBranchDestination();
+                        requiresLabel.Add(abs);
+                        break;
+                }
+            }
+
+            foreach (var opcode in opcodes)
+            {
+                if (requiresLabel.Contains(opcode.Offset))
+                {
+                    DisassembledOpcode.LabelFromOffset(opcode.Offset, output);
+                    output.Append(":\n");
+                }
+
+                opcode.Nmunonic(module, options, output);
                 output.Append('\n');
                 ++instructionsDecoded;
             }
@@ -139,6 +289,7 @@ namespace CILDisassembler
             var end = offset + count;
 
             ushort prefix = 0;
+            uint ciloffset = 0;
 
             for (var i = offset; i < end; ++i)
             {
@@ -165,7 +316,8 @@ namespace CILDisassembler
 
                 var dis = new DisassembledOpcode {
                     OpCode = opcode,
-                    OperandSize = operandSize
+                    OperandSize = operandSize,
+                    Offset = ciloffset
                 };
 
                 if (operandSize > 0)
@@ -182,6 +334,8 @@ namespace CILDisassembler
 
                     dis.Operand = val;
                 }
+
+                ciloffset += (uint)dis.ByteSize;
 
                 yield return dis;
             }
@@ -202,6 +356,7 @@ namespace CILDisassembler
 
         private static int[] InitializeOperandSizeLookup()
         {
+            // https://github.com/jbevain/cecil/blob/master/Mono.Cecil.Cil/Instruction.cs#L62
             var operandSizeLookup = new int[0xFF];
             operandSizeLookup[(byte)OperandType.InlineBrTarget] = 4;
             operandSizeLookup[(byte)OperandType.InlineField] = 4;
@@ -213,8 +368,8 @@ namespace CILDisassembler
             operandSizeLookup[(byte)OperandType.InlineR] = 8;
             operandSizeLookup[(byte)OperandType.InlineSig] = 4;
             operandSizeLookup[(byte)OperandType.InlineString] = 4;
-            operandSizeLookup[(byte)OperandType.InlineSwitch] = 4;
-            operandSizeLookup[(byte)OperandType.InlineTok] = 4; //??
+            operandSizeLookup[(byte)OperandType.InlineSwitch] = 4; // Broken?
+            operandSizeLookup[(byte)OperandType.InlineTok] = 4;
             operandSizeLookup[(byte)OperandType.InlineType] = 4;
             operandSizeLookup[(byte)OperandType.InlineVar] = 2;
             operandSizeLookup[(byte)OperandType.ShortInlineBrTarget] = 1;
